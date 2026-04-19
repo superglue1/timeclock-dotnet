@@ -16,7 +16,6 @@ Built as a portfolio project to demonstrate end-to-end ASP.NET Core 8 developmen
 
 ## Screenshots
 
-> _Add your own screenshots here after running the project. Suggested folder: `docs/screenshots/`._
 
 | Dashboard (Employee) | Payroll Report (Admin) |
 |---|---|
