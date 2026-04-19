@@ -4,6 +4,7 @@
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Blazor](https://img.shields.io/badge/Blazor-Server-512BD4?logo=blazor&logoColor=white)](https://dotnet.microsoft.com/apps/aspnet/web-apps/blazor)
+[![Build](https://github.com/superglue1/timeclock-dotnet/actions/workflows/build.yml/badge.svg)](https://github.com/superglue1/timeclock-dotnet/actions/workflows/build.yml)
 [![Entity Framework](https://img.shields.io/badge/EF_Core-8.0-512BD4)](https://learn.microsoft.com/ef/core/)
 [![SQLite](https://img.shields.io/badge/SQLite-lightgrey?logo=sqlite)](https://www.sqlite.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
