@@ -1,0 +1,162 @@
+@page "/admin/schedule"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Manager,Supervisor")]
+@inject ApplicationDbContext Db
+@using Microsoft.EntityFrameworkCore
+
+<PageTitle>Schedule</PageTitle>
+
+<h1>Schedule</h1>
+
+<EditForm Model="_form" OnValidSubmit="Create" FormName="ScheduleForm">
+    <div class="card mb-4" style="max-width: 900px;">
+        <div class="card-body">
+            <h5>Create shift</h5>
+            <div class="row g-2">
+                <div class="col-md-4">
+                    <label>Employee</label>
+                    <InputSelect @bind-Value="_form.UserId" class="form-select">
+                        <option value="">— select —</option>
+                        @foreach (var u in _users)
+                        {
+                            <option value="@u.Id">@u.FullName (@u.Email)</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="col-md-3">
+                    <label>Start (local)</label>
+                    <InputDate Type="InputDateType.DateTimeLocal" @bind-Value="_form.Start" class="form-control" />
+                </div>
+                <div class="col-md-3">
+                    <label>End (local)</label>
+                    <InputDate Type="InputDateType.DateTimeLocal" @bind-Value="_form.End" class="form-control" />
+                </div>
+                <div class="col-md-2">
+                    <div class="form-check mt-4">
+                        <InputCheckbox @bind-Value="_form.EnforceWindow" class="form-check-input" />
+                        <label class="form-check-label">Enforce clock-in window</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <label>Window before (min)</label>
+                    <InputNumber @bind-Value="_form.Before" class="form-control" />
+                </div>
+                <div class="col-md-3">
+                    <label>Window after (min)</label>
+                    <InputNumber @bind-Value="_form.After" class="form-control" />
+                </div>
+                <div class="col-md-6">
+                    <label>Notes</label>
+                    <InputText @bind-Value="_form.Notes" class="form-control" />
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary mt-3">Add Shift</button>
+            @if (!string.IsNullOrEmpty(_message))
+            {
+                <div class="alert alert-info mt-3">@_message</div>
+            }
+        </div>
+    </div>
+</EditForm>
+
+<h3>Upcoming Shifts</h3>
+@if (_shifts == null)
+{
+    <p>Loading...</p>
+}
+else if (_shifts.Count == 0)
+{
+    <p class="text-muted">No shifts scheduled.</p>
+}
+else
+{
+    <table class="table table-sm">
+        <thead>
+            <tr><th>Employee</th><th>Start</th><th>End</th><th>Window</th><th>Notes</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var s in _shifts)
+            {
+                <tr>
+                    <td>@s.User?.FullName</td>
+                    <td>@s.ShiftStartUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                    <td>@s.ShiftEndUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                    <td>
+                        @if (s.EnforceClockInWindow)
+                        {
+                            <span>-@s.ClockInWindowMinutesBefore / +@s.ClockInWindowMinutesAfter min</span>
+                        }
+                        else
+                        {
+                            <span class="text-muted">off</span>
+                        }
+                    </td>
+                    <td>@s.Notes</td>
+                    <td><button class="btn btn-sm btn-outline-danger" @onclick="() => Delete(s.Id)">Delete</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<ApplicationUser> _users = new();
+    private List<ScheduleEntry>? _shifts;
+    private FormModel _form = new();
+    private string? _message;
+
+    private class FormModel
+    {
+        public string UserId { get; set; } = "";
+        public DateTime Start { get; set; } = DateTime.Now.Date.AddDays(1).AddHours(9);
+        public DateTime End { get; set; } = DateTime.Now.Date.AddDays(1).AddHours(17);
+        public bool EnforceWindow { get; set; } = true;
+        public int Before { get; set; } = 15;
+        public int After { get; set; } = 15;
+        public string? Notes { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _users = await Db.Users.Where(u => u.IsActive).OrderBy(u => u.LastName).ToListAsync();
+        await LoadShifts();
+    }
+
+    private async Task LoadShifts()
+    {
+        _shifts = await Db.ScheduleEntries
+            .Include(s => s.User)
+            .Where(s => s.ShiftStartUtc >= DateTime.UtcNow.AddDays(-1))
+            .OrderBy(s => s.ShiftStartUtc)
+            .Take(100)
+            .ToListAsync();
+    }
+
+    private async Task Create()
+    {
+        _message = null;
+        if (string.IsNullOrEmpty(_form.UserId)) { _message = "Select employee"; return; }
+
+        var entry = new ScheduleEntry
+        {
+            UserId = _form.UserId,
+            ShiftStartUtc = _form.Start.ToUniversalTime(),
+            ShiftEndUtc = _form.End.ToUniversalTime(),
+            EnforceClockInWindow = _form.EnforceWindow,
+            ClockInWindowMinutesBefore = _form.Before,
+            ClockInWindowMinutesAfter = _form.After,
+            Notes = _form.Notes
+        };
+        Db.ScheduleEntries.Add(entry);
+        await Db.SaveChangesAsync();
+        _message = "Shift added.";
+        _form = new FormModel();
+        await LoadShifts();
+    }
+
+    private async Task Delete(int id)
+    {
+        var s = await Db.ScheduleEntries.FindAsync(id);
+        if (s != null) { Db.ScheduleEntries.Remove(s); await Db.SaveChangesAsync(); await LoadShifts(); }
+    }
+}

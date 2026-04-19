@@ -1,0 +1,93 @@
+@page "/admin/pay-codes"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@inject ApplicationDbContext Db
+@using Microsoft.EntityFrameworkCore
+
+<PageTitle>Pay Codes</PageTitle>
+
+<h1>Pay Codes</h1>
+
+<EditForm Model="_form" OnValidSubmit="Add" FormName="PayCodeForm">
+    <div class="card mb-4" style="max-width: 700px;">
+        <div class="card-body">
+            <h5>Add pay code</h5>
+            <div class="row g-2">
+                <div class="col-md-2">
+                    <label>Code</label>
+                    <InputText @bind-Value="_form.Code" class="form-control" />
+                </div>
+                <div class="col-md-6">
+                    <label>Description</label>
+                    <InputText @bind-Value="_form.Description" class="form-control" />
+                </div>
+                <div class="col-md-3">
+                    <label>Multiplier</label>
+                    <InputNumber @bind-Value="_form.Multiplier" class="form-control" step="0.1" />
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary mt-3">Add</button>
+            @if (!string.IsNullOrEmpty(_message))
+            {
+                <div class="alert alert-warning mt-3">@_message</div>
+            }
+        </div>
+    </div>
+</EditForm>
+
+@if (_codes == null) { <p>Loading...</p> }
+else
+{
+    <table class="table">
+        <thead><tr><th>Code</th><th>Description</th><th>Multiplier</th><th>Active</th></tr></thead>
+        <tbody>
+            @foreach (var c in _codes)
+            {
+                <tr>
+                    <td><code>@c.Code</code></td>
+                    <td>@c.Description</td>
+                    <td>@c.Multiplier.ToString("F2")x</td>
+                    <td>@(c.IsActive ? "✅" : "❌")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<PayCode>? _codes;
+    private FormModel _form = new();
+    private string? _message;
+
+    private class FormModel
+    {
+        public string Code { get; set; } = "";
+        public string Description { get; set; } = "";
+        public decimal Multiplier { get; set; } = 1m;
+    }
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load() => _codes = await Db.PayCodes.OrderBy(c => c.Code).ToListAsync();
+
+    private async Task Add()
+    {
+        _message = null;
+        if (await Db.PayCodes.AnyAsync(c => c.Code == _form.Code))
+        {
+            _message = $"Code '{_form.Code}' already exists.";
+            return;
+        }
+
+        Db.PayCodes.Add(new PayCode
+        {
+            Code = _form.Code,
+            Description = _form.Description,
+            Multiplier = _form.Multiplier,
+            IsActive = true
+        });
+        await Db.SaveChangesAsync();
+        _form = new FormModel();
+        await Load();
+    }
+}

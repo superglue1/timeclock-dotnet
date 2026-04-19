@@ -1,0 +1,71 @@
+@page "/admin/users"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Manager")]
+@inject ApplicationDbContext Db
+@inject UserManager<ApplicationUser> UserManager
+@using Microsoft.EntityFrameworkCore
+
+<PageTitle>Users</PageTitle>
+
+<h1>Users</h1>
+
+<p><a href="admin/users/new" class="btn btn-primary">+ New User</a></p>
+
+@if (_users == null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Roles</th>
+                <th>Salaried</th>
+                <th>Pay Period</th>
+                <th>PTO Balance</th>
+                <th>Active</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in _users)
+            {
+                <tr>
+                    <td>@row.User.FullName</td>
+                    <td>@row.User.Email</td>
+                    <td>
+                        @foreach (var r in row.Roles)
+                        {
+                            <span class="badge bg-info me-1">@r</span>
+                        }
+                    </td>
+                    <td>@(row.User.IsSalaried ? "Yes" : "No")</td>
+                    <td>@(row.User.PayPeriod?.Name ?? "—")</td>
+                    <td>@row.User.PtoBalanceHours.ToString("F2")</td>
+                    <td>@(row.User.IsActive ? "✅" : "❌")</td>
+                    <td><a href="@($"admin/users/{row.User.Id}")" class="btn btn-sm btn-outline-primary">Edit</a></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private record UserRow(ApplicationUser User, IList<string> Roles);
+    private List<UserRow>? _users;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var users = await Db.Users.Include(u => u.PayPeriod).OrderBy(u => u.LastName).ToListAsync();
+        var list = new List<UserRow>();
+        foreach (var u in users)
+        {
+            var roles = await UserManager.GetRolesAsync(u);
+            list.Add(new UserRow(u, roles));
+        }
+        _users = list;
+    }
+}

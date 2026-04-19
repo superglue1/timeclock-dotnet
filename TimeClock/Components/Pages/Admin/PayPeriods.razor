@@ -1,0 +1,100 @@
+@page "/admin/pay-periods"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@inject ApplicationDbContext Db
+@using Microsoft.EntityFrameworkCore
+
+<PageTitle>Pay Periods</PageTitle>
+
+<h1>Pay Periods</h1>
+
+<EditForm Model="_form" OnValidSubmit="Add" FormName="PayPeriodForm">
+    <div class="card mb-4" style="max-width: 800px;">
+        <div class="card-body">
+            <h5>Create pay period</h5>
+            <div class="row g-2">
+                <div class="col-md-4">
+                    <label>Name</label>
+                    <InputText @bind-Value="_form.Name" class="form-control" />
+                </div>
+                <div class="col-md-3">
+                    <label>Type</label>
+                    <InputSelect @bind-Value="_form.PeriodType" class="form-select">
+                        <option value="@PayPeriodType.Weekly">Weekly</option>
+                        <option value="@PayPeriodType.BiWeekly">Bi-Weekly</option>
+                        <option value="@PayPeriodType.SemiMonthly">Semi-Monthly</option>
+                        <option value="@PayPeriodType.Monthly">Monthly</option>
+                    </InputSelect>
+                </div>
+                <div class="col-md-3">
+                    <label>Anchor date</label>
+                    <InputDate @bind-Value="_form.AnchorDate" class="form-control" />
+                </div>
+                <div class="col-md-2">
+                    <label>OT Threshold</label>
+                    <InputNumber @bind-Value="_form.OtThreshold" class="form-control" />
+                </div>
+                <div class="col-md-2">
+                    <label>OT Multiplier</label>
+                    <InputNumber @bind-Value="_form.OtMultiplier" class="form-control" step="0.1" />
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary mt-3">Add</button>
+        </div>
+    </div>
+</EditForm>
+
+@if (_periods == null) { <p>Loading...</p> }
+else
+{
+    <table class="table">
+        <thead><tr><th>Name</th><th>Type</th><th>Anchor</th><th>OT Threshold</th><th>OT Mult</th><th>Active</th></tr></thead>
+        <tbody>
+            @foreach (var p in _periods)
+            {
+                <tr>
+                    <td>@p.Name</td>
+                    <td>@p.PeriodType</td>
+                    <td>@p.AnchorDate.ToString("yyyy-MM-dd")</td>
+                    <td>@p.OvertimeThresholdHours</td>
+                    <td>@p.OvertimeMultiplier</td>
+                    <td>@(p.IsActive ? "✅" : "❌")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<PayPeriod>? _periods;
+    private FormModel _form = new();
+
+    private class FormModel
+    {
+        public string Name { get; set; } = "";
+        public PayPeriodType PeriodType { get; set; } = PayPeriodType.Weekly;
+        public DateTime AnchorDate { get; set; } = DateTime.Today;
+        public decimal OtThreshold { get; set; } = 40m;
+        public decimal OtMultiplier { get; set; } = 1.5m;
+    }
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load() => _periods = await Db.PayPeriods.OrderBy(p => p.Name).ToListAsync();
+
+    private async Task Add()
+    {
+        Db.PayPeriods.Add(new PayPeriod
+        {
+            Name = _form.Name,
+            PeriodType = _form.PeriodType,
+            AnchorDate = _form.AnchorDate,
+            OvertimeThresholdHours = _form.OtThreshold,
+            OvertimeMultiplier = _form.OtMultiplier,
+            IsActive = true
+        });
+        await Db.SaveChangesAsync();
+        _form = new FormModel();
+        await Load();
+    }
+}

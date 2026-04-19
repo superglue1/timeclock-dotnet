@@ -1,0 +1,166 @@
+@page "/admin/payroll"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Manager")]
+@inject ApplicationDbContext Db
+@inject PayrollService PayrollSvc
+@inject IJSRuntime JS
+@using Microsoft.EntityFrameworkCore
+@using System.Text
+
+<PageTitle>Payroll Report</PageTitle>
+
+<h1>Payroll Report</h1>
+
+<div class="row g-2 align-items-end mb-3">
+    <div class="col-auto">
+        <label>Employee</label>
+        <InputSelect @bind-Value="_userId" class="form-select">
+            <option value="">— select —</option>
+            @foreach (var u in _users)
+            {
+                <option value="@u.Id">@u.FullName</option>
+            }
+        </InputSelect>
+    </div>
+    <div class="col-auto">
+        <label>From</label>
+        <InputDate @bind-Value="_from" class="form-control" />
+    </div>
+    <div class="col-auto">
+        <label>To</label>
+        <InputDate @bind-Value="_to" class="form-control" />
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-primary" @onclick="Build">Generate</button>
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-secondary" @onclick="ExportCsv" disabled="@(_report == null)">Export CSV</button>
+    </div>
+</div>
+
+@if (_report != null)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <h4>@_report.User.FullName</h4>
+            <p class="text-muted mb-1">
+                Period: @_report.PeriodStartUtc.ToString("yyyy-MM-dd") to @_report.PeriodEndUtc.ToString("yyyy-MM-dd")
+                @if (_report.User.IsSalaried) { <span class="badge bg-info ms-2">Salaried — OT disabled</span> }
+            </p>
+        </div>
+    </div>
+
+    @foreach (var w in _report.Weeks)
+    {
+        <div class="card mb-2">
+            <div class="card-header">
+                <strong>Week of @w.WeekStartUtc.ToString("yyyy-MM-dd")</strong>
+                — Total: <strong>@w.TotalHours.ToString("F2")</strong> h
+            </div>
+            <div class="card-body">
+                <table class="table table-sm mb-2">
+                    <thead>
+                        <tr>
+                            <th>Pay Code</th><th>Description</th><th class="text-end">Hours</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>C</td><td>Regular</td><td class="text-end">@w.RegularHours.ToString("F2")</td></tr>
+                        <tr><td>D</td><td>Overtime (1.5x)</td><td class="text-end">@w.OvertimeHours.ToString("F2")</td></tr>
+                        <tr><td>E</td><td>PTO</td><td class="text-end">@w.PtoHours.ToString("F2")</td></tr>
+                        <tr><td>H</td><td>Holiday</td><td class="text-end">@w.HolidayHours.ToString("F2")</td></tr>
+                        <tr><td>S</td><td>Sick</td><td class="text-end">@w.SickHours.ToString("F2")</td></tr>
+                    </tbody>
+                </table>
+                <details>
+                    <summary>Entries (@w.Entries.Count)</summary>
+                    <table class="table table-sm mt-2">
+                        <thead><tr><th>In</th><th>Out</th><th>Hours</th><th>Type</th></tr></thead>
+                        <tbody>
+                            @foreach (var e in w.Entries)
+                            {
+                                <tr>
+                                    <td>@e.ClockInUtc.ToLocalTime().ToString("MM-dd HH:mm")</td>
+                                    <td>@(e.ClockOutUtc?.ToLocalTime().ToString("MM-dd HH:mm"))</td>
+                                    <td>@((e.TotalHours ?? 0).ToString("F2"))</td>
+                                    <td>@e.EntryType</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </details>
+            </div>
+        </div>
+    }
+
+    <div class="card bg-light">
+        <div class="card-body">
+            <h5>Grand Total (@_report.Weeks.Count weeks combined)</h5>
+            <table class="table table-sm mb-0">
+                <tbody>
+                    <tr><td>Regular (C)</td><td class="text-end">@_report.TotalRegular.ToString("F2")</td></tr>
+                    <tr><td>Overtime (D)</td><td class="text-end">@_report.TotalOvertime.ToString("F2")</td></tr>
+                    <tr><td>PTO (E)</td><td class="text-end">@_report.TotalPto.ToString("F2")</td></tr>
+                    <tr><td>Holiday (H)</td><td class="text-end">@_report.TotalHolidayHours.ToString("F2")</td></tr>
+                    <tr><td>Sick (S)</td><td class="text-end">@_report.TotalSickHours.ToString("F2")</td></tr>
+                    <tr class="table-active"><th>Total</th><th class="text-end">@_report.GrandTotal.ToString("F2")</th></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ApplicationUser> _users = new();
+    private string _userId = "";
+    private DateTime _from = DateTime.Today.AddDays(-14);
+    private DateTime _to = DateTime.Today.AddDays(1);
+    private PayrollReport? _report;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _users = await Db.Users.Where(u => u.IsActive).OrderBy(u => u.LastName).ToListAsync();
+    }
+
+    private async Task Build()
+    {
+        if (string.IsNullOrEmpty(_userId)) return;
+        _report = await PayrollSvc.BuildReportAsync(_userId, _from.ToUniversalTime(), _to.ToUniversalTime());
+    }
+
+    private async Task ExportCsv()
+    {
+        if (_report == null) return;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("Employee,Period Start,Period End,Week Start,Pay Code,Description,Hours");
+
+        var name = _report.User.FullName.Replace(",", " ");
+        var ps = _report.PeriodStartUtc.ToString("yyyy-MM-dd");
+        var pe = _report.PeriodEndUtc.ToString("yyyy-MM-dd");
+
+        foreach (var w in _report.Weeks)
+        {
+            var ws = w.WeekStartUtc.ToString("yyyy-MM-dd");
+            sb.AppendLine($"{name},{ps},{pe},{ws},C,Regular,{w.RegularHours:F2}");
+            sb.AppendLine($"{name},{ps},{pe},{ws},D,Overtime (1.5x),{w.OvertimeHours:F2}");
+            sb.AppendLine($"{name},{ps},{pe},{ws},E,PTO,{w.PtoHours:F2}");
+            sb.AppendLine($"{name},{ps},{pe},{ws},H,Holiday,{w.HolidayHours:F2}");
+            sb.AppendLine($"{name},{ps},{pe},{ws},S,Sick,{w.SickHours:F2}");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine($"{name},{ps},{pe},TOTAL,C,Regular,{_report.TotalRegular:F2}");
+        sb.AppendLine($"{name},{ps},{pe},TOTAL,D,Overtime,{_report.TotalOvertime:F2}");
+        sb.AppendLine($"{name},{ps},{pe},TOTAL,E,PTO,{_report.TotalPto:F2}");
+        sb.AppendLine($"{name},{ps},{pe},TOTAL,H,Holiday,{_report.TotalHolidayHours:F2}");
+        sb.AppendLine($"{name},{ps},{pe},TOTAL,S,Sick,{_report.TotalSickHours:F2}");
+        sb.AppendLine($"{name},{ps},{pe},TOTAL,,Grand Total,{_report.GrandTotal:F2}");
+
+        var fileName = $"payroll_{_report.User.LastName}_{ps}_to_{pe}.csv";
+        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+        var base64 = Convert.ToBase64String(bytes);
+
+        await JS.InvokeVoidAsync("downloadFile", fileName, "text/csv", base64);
+    }
+}

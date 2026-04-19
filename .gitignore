@@ -1,0 +1,61 @@
+# Build outputs
+bin/
+obj/
+out/
+build/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+logs/
+
+# Local config
+appsettings.Local.json
+appsettings.Production.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# NuGet
+*.nupkg
+.nuget/
+packages/
+!packages/build/
+
+# Rider
+.idea/
+*.sln.iml
+
+# Visual Studio
+*.vsidx
+*.tmp_proj
+*.log
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# User-specific
+*.dbmdl
+*.dbproj.schemaview
+*.jfm
+*.pfx
+*.publishsettings
+orleans.codegen.cs

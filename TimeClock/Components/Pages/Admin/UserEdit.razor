@@ -1,0 +1,218 @@
+@page "/admin/users/new"
+@page "/admin/users/{UserId}"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Manager")]
+@inject ApplicationDbContext Db
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager Nav
+@using Microsoft.EntityFrameworkCore
+
+<PageTitle>User Edit</PageTitle>
+
+<h1>@(_isNew ? "New User" : "Edit User")</h1>
+
+@if (_loading)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <EditForm Model="_form" OnValidSubmit="Save" FormName="UserEditForm">
+        <div class="row g-3" style="max-width: 900px;">
+            <div class="col-md-6">
+                <label>Email</label>
+                <InputText @bind-Value="_form.Email" class="form-control" disabled="@(!_isNew)" />
+            </div>
+            @if (_isNew)
+            {
+                <div class="col-md-6">
+                    <label>Password</label>
+                    <InputText @bind-Value="_form.Password" type="password" class="form-control" />
+                </div>
+            }
+            <div class="col-md-6">
+                <label>First Name</label>
+                <InputText @bind-Value="_form.FirstName" class="form-control" />
+            </div>
+            <div class="col-md-6">
+                <label>Last Name</label>
+                <InputText @bind-Value="_form.LastName" class="form-control" />
+            </div>
+
+            <div class="col-md-4">
+                <label>Role</label>
+                <InputSelect @bind-Value="_form.Role" class="form-select">
+                    <option value="BasicUser">Basic User</option>
+                    <option value="Supervisor">Supervisor</option>
+                    <option value="Manager">Manager</option>
+                    <option value="Admin">Admin</option>
+                </InputSelect>
+            </div>
+            <div class="col-md-4">
+                <label>Pay Period</label>
+                <InputSelect @bind-Value="_form.PayPeriodId" class="form-select">
+                    <option value="">— none —</option>
+                    @foreach (var p in _payPeriods)
+                    {
+                        <option value="@p.Id">@p.Name</option>
+                    }
+                </InputSelect>
+            </div>
+            <div class="col-md-4">
+                <div class="form-check mt-4">
+                    <InputCheckbox @bind-Value="_form.IsSalaried" class="form-check-input" />
+                    <label class="form-check-label">Salaried</label>
+                </div>
+                <div class="form-check">
+                    <InputCheckbox @bind-Value="_form.IsActive" class="form-check-input" />
+                    <label class="form-check-label">Active</label>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <label>PTO Balance (hours)</label>
+                <InputNumber @bind-Value="_form.PtoBalance" class="form-control" step="0.25" />
+            </div>
+            <div class="col-md-4">
+                <label>PTO Accrual per period</label>
+                <InputNumber @bind-Value="_form.PtoAccrual" class="form-control" step="0.01" />
+            </div>
+
+            <div class="col-12">
+                <hr />
+                <h5>IP Restriction</h5>
+                <div class="form-check">
+                    <InputCheckbox @bind-Value="_form.EnforceIp" class="form-check-input" />
+                    <label class="form-check-label">Enforce IP check on clock in/out</label>
+                </div>
+                <label class="mt-2">Allowed IP addresses (comma-separated)</label>
+                <InputText @bind-Value="_form.AllowedIps" class="form-control" placeholder="e.g. 192.168.1.100, 10.0.0.5" />
+            </div>
+        </div>
+
+        <div class="mt-3">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <a href="admin/users" class="btn btn-secondary">Cancel</a>
+        </div>
+    </EditForm>
+
+    @if (!string.IsNullOrEmpty(_message))
+    {
+        <div class="alert @(_ok ? "alert-success" : "alert-danger") mt-3">@_message</div>
+    }
+}
+
+@code {
+    [Parameter] public string? UserId { get; set; }
+
+    private bool _isNew;
+    private bool _loading = true;
+    private string? _message;
+    private bool _ok;
+    private List<PayPeriod> _payPeriods = new();
+    private FormModel _form = new();
+
+    private class FormModel
+    {
+        public string Email { get; set; } = "";
+        public string? Password { get; set; }
+        public string FirstName { get; set; } = "";
+        public string LastName { get; set; } = "";
+        public string Role { get; set; } = "BasicUser";
+        public int? PayPeriodId { get; set; }
+        public bool IsSalaried { get; set; }
+        public bool IsActive { get; set; } = true;
+        public decimal PtoBalance { get; set; }
+        public decimal PtoAccrual { get; set; }
+        public bool EnforceIp { get; set; }
+        public string? AllowedIps { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _payPeriods = await Db.PayPeriods.Where(p => p.IsActive).ToListAsync();
+        _isNew = string.IsNullOrEmpty(UserId);
+
+        if (!_isNew)
+        {
+            var u = await Db.Users.FirstOrDefaultAsync(x => x.Id == UserId);
+            if (u != null)
+            {
+                var roles = await UserManager.GetRolesAsync(u);
+                _form = new FormModel
+                {
+                    Email = u.Email ?? "",
+                    FirstName = u.FirstName,
+                    LastName = u.LastName,
+                    Role = roles.FirstOrDefault() ?? "BasicUser",
+                    PayPeriodId = u.PayPeriodId,
+                    IsSalaried = u.IsSalaried,
+                    IsActive = u.IsActive,
+                    PtoBalance = u.PtoBalanceHours,
+                    PtoAccrual = u.PtoAccrualRatePerPeriod,
+                    EnforceIp = u.EnforceIpCheck,
+                    AllowedIps = u.AllowedIpAddresses
+                };
+            }
+        }
+        _loading = false;
+    }
+
+    private async Task Save()
+    {
+        _message = null;
+
+        if (_isNew)
+        {
+            if (string.IsNullOrWhiteSpace(_form.Password) || _form.Password.Length < 8)
+            {
+                _ok = false; _message = "Password must be at least 8 chars."; return;
+            }
+
+            var user = new ApplicationUser
+            {
+                UserName = _form.Email,
+                Email = _form.Email,
+                EmailConfirmed = true,
+                FirstName = _form.FirstName,
+                LastName = _form.LastName,
+                IsSalaried = _form.IsSalaried,
+                IsActive = _form.IsActive,
+                PayPeriodId = _form.PayPeriodId,
+                PtoBalanceHours = _form.PtoBalance,
+                PtoAccrualRatePerPeriod = _form.PtoAccrual,
+                EnforceIpCheck = _form.EnforceIp,
+                AllowedIpAddresses = _form.AllowedIps
+            };
+            var res = await UserManager.CreateAsync(user, _form.Password!);
+            if (!res.Succeeded)
+            {
+                _ok = false; _message = string.Join("; ", res.Errors.Select(e => e.Description)); return;
+            }
+            await UserManager.AddToRoleAsync(user, _form.Role);
+            Nav.NavigateTo("admin/users");
+        }
+        else
+        {
+            var u = await Db.Users.FirstOrDefaultAsync(x => x.Id == UserId);
+            if (u == null) { _ok = false; _message = "User not found"; return; }
+
+            u.FirstName = _form.FirstName;
+            u.LastName = _form.LastName;
+            u.IsSalaried = _form.IsSalaried;
+            u.IsActive = _form.IsActive;
+            u.PayPeriodId = _form.PayPeriodId;
+            u.PtoBalanceHours = _form.PtoBalance;
+            u.PtoAccrualRatePerPeriod = _form.PtoAccrual;
+            u.EnforceIpCheck = _form.EnforceIp;
+            u.AllowedIpAddresses = _form.AllowedIps;
+
+            var currentRoles = await UserManager.GetRolesAsync(u);
+            await UserManager.RemoveFromRolesAsync(u, currentRoles);
+            await UserManager.AddToRoleAsync(u, _form.Role);
+
+            await Db.SaveChangesAsync();
+            _ok = true; _message = "Saved.";
+        }
+    }
+}

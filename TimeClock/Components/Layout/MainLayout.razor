@@ -1,0 +1,28 @@
+@inherits LayoutComponentBase
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <div class="top-row px-4">
+            <AuthorizeView>
+                <Authorized>
+                    <span class="me-3">Hello, <strong>@context.User.Identity?.Name</strong></span>
+                    <form action="Account/Logout" method="post" class="d-inline">
+                        <AntiforgeryToken />
+                        <button type="submit" class="btn btn-link">Log out</button>
+                    </form>
+                </Authorized>
+                <NotAuthorized>
+                    <a href="Account/Login">Log in</a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>

@@ -1,0 +1,164 @@
+@page "/my-pto"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Microsoft.EntityFrameworkCore
+@inject PtoService PtoSvc
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthProvider
+@inject ApplicationDbContext Db
+
+<PageTitle>My PTO</PageTitle>
+
+<h1>My PTO</h1>
+
+@if (_user == null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <div class="card mb-3" style="max-width: 500px;">
+        <div class="card-body">
+            <h5>Current Balance</h5>
+            <p class="fs-3 mb-0">@_user.PtoBalanceHours.ToString("F2") hours</p>
+            <small class="text-muted">Accrual per period: @_user.PtoAccrualRatePerPeriod.ToString("F2") h</small>
+        </div>
+    </div>
+
+    <h3>Request PTO</h3>
+    <EditForm Model="_form" OnValidSubmit="Submit" FormName="PtoForm">
+        <div class="row g-2" style="max-width: 700px;">
+            <div class="col-md-3">
+                <label>Start date</label>
+                <InputDate @bind-Value="_form.Start" class="form-control" />
+            </div>
+            <div class="col-md-3">
+                <label>End date</label>
+                <InputDate @bind-Value="_form.End" class="form-control" />
+            </div>
+            <div class="col-md-2">
+                <label>Hours</label>
+                <InputNumber @bind-Value="_form.Hours" class="form-control" step="0.25" />
+            </div>
+            <div class="col-md-4">
+                <label>Reason</label>
+                <InputText @bind-Value="_form.Reason" class="form-control" />
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary mt-3">Submit Request</button>
+    </EditForm>
+
+    @if (!string.IsNullOrEmpty(_message))
+    {
+        <div class="alert @(_success ? "alert-success" : "alert-danger") mt-3">@_message</div>
+    }
+
+    <h3 class="mt-4">My Requests</h3>
+    @if (_requests.Count == 0)
+    {
+        <p class="text-muted">No requests yet.</p>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr><th>Start</th><th>End</th><th>Hours</th><th>Status</th><th>Reason</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _requests)
+                {
+                    <tr>
+                        <td>@r.StartDate.ToString("yyyy-MM-dd")</td>
+                        <td>@r.EndDate.ToString("yyyy-MM-dd")</td>
+                        <td>@r.HoursRequested.ToString("F2")</td>
+                        <td>
+                            <span class="badge @StatusClass(r.Status)">@r.Status</span>
+                        </td>
+                        <td>@r.Reason</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <h3 class="mt-4">Transaction History</h3>
+    @if (_history.Count == 0)
+    {
+        <p class="text-muted">No transactions.</p>
+    }
+    else
+    {
+        <table class="table table-sm">
+            <thead><tr><th>Date</th><th>Hours</th><th>Description</th></tr></thead>
+            <tbody>
+                @foreach (var t in _history)
+                {
+                    <tr>
+                        <td>@t.TransactionDate.ToLocalTime().ToString("yyyy-MM-dd")</td>
+                        <td class="@(t.Hours < 0 ? "text-danger" : "text-success")">@t.Hours.ToString("+0.00;-0.00")</td>
+                        <td>@t.Description</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private ApplicationUser? _user;
+    private FormModel _form = new();
+    private string? _message;
+    private bool _success;
+    private List<PtoRequest> _requests = new();
+    private List<PtoTransaction> _history = new();
+
+    private class FormModel
+    {
+        public DateTime Start { get; set; } = DateTime.Today.AddDays(7);
+        public DateTime End { get; set; } = DateTime.Today.AddDays(7);
+        public decimal Hours { get; set; } = 8m;
+        public string? Reason { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        _user = await UserManager.GetUserAsync(state.User);
+        if (_user == null) return;
+
+        _requests = await Db.PtoRequests
+            .Where(r => r.UserId == _user.Id)
+            .OrderByDescending(r => r.CreatedAt)
+            .ToListAsync();
+        _history = await PtoSvc.GetHistoryAsync(_user.Id);
+    }
+
+    private async Task Submit()
+    {
+        if (_user == null) return;
+        _message = null;
+        try
+        {
+            await PtoSvc.RequestPtoAsync(_user.Id, _form.Start, _form.End, _form.Hours, _form.Reason);
+            _success = true;
+            _message = "PTO request submitted.";
+            _form = new FormModel();
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            _success = false;
+            _message = ex.Message;
+        }
+    }
+
+    private static string StatusClass(PtoRequestStatus s) => s switch
+    {
+        PtoRequestStatus.Approved => "bg-success",
+        PtoRequestStatus.Denied => "bg-danger",
+        PtoRequestStatus.Cancelled => "bg-secondary",
+        _ => "bg-warning text-dark"
+    };
+}

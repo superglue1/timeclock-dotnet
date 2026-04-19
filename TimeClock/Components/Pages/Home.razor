@@ -1,0 +1,139 @@
+@page "/"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@implements IDisposable
+@inject TimeClockService ClockSvc
+@inject UserManager<ApplicationUser> UserManager
+@inject IHttpContextAccessor HttpCtx
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Dashboard</PageTitle>
+
+<h1>Welcome, @(_user?.FirstName ?? "")</h1>
+
+@if (_loading)
+{
+    <p>Loading...</p>
+}
+else if (_user != null)
+{
+    <div class="card mt-3" style="max-width: 600px;">
+        <div class="card-body">
+            <h4 class="card-title">Time Clock</h4>
+
+            @if (_openEntry != null)
+            {
+                <p class="text-success">
+                    ✅ You are <strong>clocked in</strong> since
+                    <strong>@_openEntry.ClockInUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</strong>
+                </p>
+                <p class="fs-4">Elapsed: <strong>@_elapsed</strong></p>
+                <button class="btn btn-danger btn-lg" @onclick="OnClockOut" disabled="@_submitting">
+                    🛑 Clock Out
+                </button>
+            }
+            else
+            {
+                <p class="text-muted">You are currently <strong>clocked out</strong>.</p>
+                <button class="btn btn-success btn-lg" @onclick="OnClockIn" disabled="@_submitting">
+                    ▶ Clock In
+                </button>
+            }
+
+            @if (!string.IsNullOrEmpty(_message))
+            {
+                <div class="alert @(_success ? "alert-success" : "alert-danger") mt-3">@_message</div>
+            }
+        </div>
+    </div>
+
+    <div class="card mt-4" style="max-width: 600px;">
+        <div class="card-body">
+            <h5 class="card-title">PTO Balance</h5>
+            <p class="fs-4"><strong>@_user.PtoBalanceHours.ToString("F2")</strong> hours</p>
+        </div>
+    </div>
+}
+
+@code {
+    private ApplicationUser? _user;
+    private TimeEntry? _openEntry;
+    private bool _loading = true;
+    private bool _submitting;
+    private string? _message;
+    private bool _success;
+    private System.Timers.Timer? _timer;
+    private string _elapsed = "00:00:00";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated == true)
+        {
+            _user = await UserManager.GetUserAsync(state.User);
+            if (_user != null)
+                _openEntry = await ClockSvc.GetOpenEntryAsync(_user.Id);
+        }
+
+        // Timer fires every second; we marshal the update to the UI thread via InvokeAsync
+        _timer = new System.Timers.Timer(1000);
+        _timer.Elapsed += async (_, _) => await InvokeAsync(() =>
+        {
+            UpdateElapsed();
+            StateHasChanged();
+        });
+        _timer.AutoReset = true;
+        _timer.Start();
+
+        UpdateElapsed();
+        _loading = false;
+    }
+
+    private void UpdateElapsed()
+    {
+        if (_openEntry != null)
+        {
+            var span = DateTime.UtcNow - _openEntry.ClockInUtc;
+            _elapsed = $"{(int)span.TotalHours:D2}:{span.Minutes:D2}:{span.Seconds:D2}";
+        }
+        else
+        {
+            _elapsed = "00:00:00";
+        }
+    }
+
+    private string? GetIp() => HttpCtx.HttpContext?.Connection.RemoteIpAddress?.ToString();
+
+    private async Task OnClockIn()
+    {
+        if (_user == null) return;
+        _submitting = true;
+        _message = null;
+        var result = await ClockSvc.ClockInAsync(_user.Id, GetIp());
+        _success = result.Success;
+        _message = result.Message;
+        if (result.Success) _openEntry = result.Entry;
+        UpdateElapsed();
+        _submitting = false;
+    }
+
+    private async Task OnClockOut()
+    {
+        if (_user == null) return;
+        _submitting = true;
+        _message = null;
+        var result = await ClockSvc.ClockOutAsync(_user.Id, GetIp());
+        _success = result.Success;
+        _message = result.Message;
+        if (result.Success) _openEntry = null;
+        _user = await UserManager.FindByIdAsync(_user.Id);
+        UpdateElapsed();
+        _submitting = false;
+    }
+
+    public void Dispose()
+    {
+        _timer?.Stop();
+        _timer?.Dispose();
+    }
+}
